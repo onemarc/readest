@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useThemeStore } from '@/store/themeStore';
 import { useEnv } from '@/context/EnvContext';
 import { DragKey, useDrag } from '@/hooks/useDrag';
+import { useNotesSelection } from '@/hooks/useNotesSelection';
 import { TextSelection } from '@/utils/sel';
 import { BookNote } from '@/types/book';
 import { uniqueId } from '@/utils/misc';
@@ -21,10 +22,10 @@ import NotebookHeader from './Header';
 import NoteEditor from './NoteEditor';
 import SearchBar from './SearchBar';
 
-const MIN_NOTEBOOK_WIDTH = 0.15;
-const MAX_NOTEBOOK_WIDTH = 0.45;
+const MIN_NOTEBOOK_WIDTH = 0.2;
+const MAX_NOTEBOOK_WIDTH = 0.6;
 
-const Notebook: React.FC = ({}) => {
+const Notebook: React.FC = () => {
   const _ = useTranslation();
   const { updateAppTheme, safeAreaInsets } = useThemeStore();
   const { envConfig, appService } = useEnv();
@@ -41,6 +42,8 @@ const Notebook: React.FC = ({}) => {
   const [isSearchBarVisible, setIsSearchBarVisible] = useState(false);
   const [searchResults, setSearchResults] = useState<BookNote[] | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const notesSelection = useNotesSelection();
 
   const onNavigateEvent = async () => {
     const pinButton = document.querySelector('.sidebar-pin-btn');
@@ -167,6 +170,93 @@ const Notebook: React.FC = ({}) => {
       setSearchResults(null);
       setSearchTerm('');
     }
+    // Exit multi-select mode when toggling search
+    if (notesSelection.isMultiSelectMode) {
+      notesSelection.toggleMultiSelectMode();
+    }
+  };
+
+  // Multi-select handlers
+  const allVisibleNotes = useMemo(() => {
+    return [...annotationNotes, ...excerptNotes];
+  }, [annotationNotes, excerptNotes]);
+
+  const handleToggleMultiSelect = () => {
+    notesSelection.toggleMultiSelectMode();
+  };
+
+  const handleSelectAll = () => {
+    const currentVisibleNotes = isSearchBarVisible && searchResults ? 
+      searchResults.filter(note => !note.deletedAt) : 
+      allVisibleNotes;
+    
+    if (notesSelection.isAllSelected(currentVisibleNotes)) {
+      notesSelection.selectNone();
+    } else {
+      notesSelection.selectAll(currentVisibleNotes);
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (!sideBarBookKey) return;
+    
+    const selectedNotes = notesSelection.getSelectedNotes(allVisibleNotes);
+    if (selectedNotes.length === 0) return;
+
+    const config = getConfig(sideBarBookKey)!;
+    const { booknotes: annotations = [] } = config;
+    
+    // Mark selected notes as deleted
+    selectedNotes.forEach(selectedNote => {
+      const existingIndex = annotations.findIndex(note => note.id === selectedNote.id);
+      if (existingIndex !== -1) {
+        annotations[existingIndex]!.deletedAt = Date.now();
+      }
+    });
+
+    const updatedConfig = updateBooknotes(sideBarBookKey, annotations);
+    if (updatedConfig) {
+      saveConfig(envConfig, sideBarBookKey, updatedConfig, settings);
+    }
+
+    // Clear selection after deletion
+    notesSelection.selectNone();
+    
+    // Show toast notification
+    eventDispatcher.dispatch('toast', {
+      type: 'info',
+      message: `${selectedNotes.length} ${selectedNotes.length === 1 ? _('note deleted') : _('notes deleted')}`,
+      className: 'whitespace-nowrap',
+      timeout: 2000,
+    });
+  };
+
+  const handleCopySelected = () => {
+    const selectedNotes = notesSelection.getSelectedNotes(allVisibleNotes);
+    if (selectedNotes.length === 0) return;
+
+    // Format notes for copying
+    const lines: string[] = [];
+    selectedNotes.forEach(note => {
+      if (note.text) {
+        lines.push(note.text);
+        if (note.note) {
+          lines.push(note.note);
+        }
+        lines.push(''); // Empty line between notes
+      }
+    });
+
+    const textToCopy = lines.join('\n');
+    navigator.clipboard?.writeText(textToCopy);
+
+    // Show toast notification
+    eventDispatcher.dispatch('toast', {
+      type: 'info',
+      message: `${selectedNotes.length} ${selectedNotes.length === 1 ? _('note copied') : _('notes copied')}`,
+      className: 'whitespace-nowrap',
+      timeout: 2000,
+    });
   };
 
   const filteredAnnotationNotes = useMemo(
@@ -184,6 +274,10 @@ const Notebook: React.FC = ({}) => {
         : excerptNotes,
     [excerptNotes, searchResults, isSearchBarVisible],
   );
+
+  const currentVisibleNotes = useMemo(() => {
+    return [...filteredAnnotationNotes, ...filteredExcerptNotes];
+  }, [filteredAnnotationNotes, filteredExcerptNotes]);
 
   if (!sideBarBookKey) return null;
 
@@ -244,9 +338,19 @@ const Notebook: React.FC = ({}) => {
           <NotebookHeader
             isPinned={isNotebookPinned}
             isSearchBarVisible={isSearchBarVisible}
+            isMultiSelectMode={notesSelection.isMultiSelectMode}
+            hasSelection={notesSelection.hasSelection}
+            selectedCount={notesSelection.selectedCount}
+            isAllSelected={notesSelection.isAllSelected(currentVisibleNotes)}
+            allNotes={currentVisibleNotes}
+            notebookWidth={notebookWidth}
             handleClose={() => setNotebookVisible(false)}
             handleTogglePin={handleTogglePin}
             handleToggleSearchBar={handleToggleSearchBar}
+            handleToggleMultiSelect={handleToggleMultiSelect}
+            handleSelectAll={handleSelectAll}
+            handleDeleteSelected={handleDeleteSelected}
+            handleCopySelected={handleCopySelected}
           />
           <div
             className={clsx('search-bar', {
@@ -340,7 +444,14 @@ const Notebook: React.FC = ({}) => {
           )}
           <ul>
             {filteredAnnotationNotes.map((item, index) => (
-              <BooknoteItem key={`${index}-${item.cfi}`} bookKey={sideBarBookKey} item={item} />
+              <BooknoteItem 
+                key={`${index}-${item.cfi}`} 
+                bookKey={sideBarBookKey} 
+                item={item}
+                isMultiSelectMode={notesSelection.isMultiSelectMode}
+                isSelected={notesSelection.selectedNoteIds.has(item.id)}
+                onToggleSelect={notesSelection.toggleNote}
+              />
             ))}
           </ul>
         </div>

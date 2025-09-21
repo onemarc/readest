@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import React, { useRef, useState } from 'react';
 
 import { marked } from 'marked';
+import { BsCheckSquareFill, BsSquare } from 'react-icons/bs';
 import { useEnv } from '@/context/EnvContext';
 import { BookNote } from '@/types/book';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -19,9 +20,18 @@ import TextEditor, { TextEditorRef } from '@/components/TextEditor';
 interface BooknoteItemProps {
   bookKey: string;
   item: BookNote;
+  isMultiSelectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (noteId: string) => void;
 }
 
-const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
+const BooknoteItem: React.FC<BooknoteItemProps> = ({ 
+  bookKey, 
+  item, 
+  isMultiSelectMode = false, 
+  isSelected = false, 
+  onToggleSelect 
+}) => {
   const _ = useTranslation();
   const { envConfig } = useEnv();
   const { settings } = useSettingsStore();
@@ -34,17 +44,32 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
   const editorDraftRef = useRef<string>(text || '');
   const [inlineEditMode, setInlineEditMode] = useState(false);
   const separatorWidth = useResponsiveSize(3);
+  const iconSize16 = useResponsiveSize(16);
 
   const progress = getProgress(bookKey);
   const { isCurrent, viewRef } = useScrollToItem(cfi, progress);
 
   const handleClickItem = (event: React.MouseEvent | React.KeyboardEvent) => {
     event.preventDefault();
+    
+    // In multi-select mode, clicking should toggle selection instead of navigating
+    if (isMultiSelectMode && onToggleSelect) {
+      onToggleSelect(item.id);
+      return;
+    }
+    
     eventDispatcher.dispatch('navigate', { bookKey, cfi });
 
     getView(bookKey)?.goTo(cfi);
     if (note) {
       setNotebookVisible(true);
+    }
+  };
+
+  const handleCheckboxClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (onToggleSelect) {
+      onToggleSelect(item.id);
     }
   };
 
@@ -63,6 +88,25 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
     const updatedConfig = updateBooknotes(bookKey, booknotes);
     if (updatedConfig) {
       saveConfig(envConfig, bookKey, updatedConfig, settings);
+    }
+  };
+
+  const copyNote = async (note: BookNote) => {
+    try {
+      let content = '';
+      if (note.text) {
+        content += note.text;
+      }
+      if (note.note) {
+        if (content) content += '\n\n';
+        content += note.note;
+      }
+      
+      await navigator.clipboard.writeText(content);
+      // Simple notification - you could enhance this with a toast if available
+      console.log('Note copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy note:', err);
     }
   };
 
@@ -131,6 +175,7 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
         isCurrent
           ? 'bg-base-300/85 hover:bg-base-300 focus:bg-base-300'
           : 'hover:bg-base-300/55 focus:bg-base-300/55 bg-base-100',
+        isMultiSelectMode && isSelected && 'ring-2 ring-primary bg-primary/10',
         'transition-all duration-300 ease-in-out',
       )}
       tabIndex={0}
@@ -143,8 +188,28 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
         }
       }}
     >
+      {/* Multi-select checkbox */}
+      {isMultiSelectMode && (
+        <div className='absolute left-2 top-2 z-10'>
+          <button
+            onClick={handleCheckboxClick}
+            className='p-1 hover:bg-base-300 rounded transition-colors duration-200'
+            aria-label={isSelected ? _('Deselect note') : _('Select note')}
+          >
+            {isSelected ? (
+              <BsCheckSquareFill size={iconSize16} className='text-primary' />
+            ) : (
+              <BsSquare size={iconSize16} className='text-gray-400' />
+            )}
+          </button>
+        </div>
+      )}
+      
       <div
-        className={clsx('min-h-4 p-0 transition-all duration-300 ease-in-out')}
+        className={clsx(
+          'min-h-4 p-0 transition-all duration-300 ease-in-out',
+          isMultiSelectMode && 'ml-8'
+        )}
         style={
           {
             '--top-override': '0.7rem',
@@ -190,8 +255,8 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
         className={clsx(
           'max-h-0 overflow-hidden p-0',
           'transition-[max-height] duration-300 ease-in-out',
-          'group-hover:max-h-8 group-hover:overflow-visible',
-          'group-focus-within:max-h-8 group-focus-within:overflow-visible',
+          !isMultiSelectMode && 'group-hover:max-h-8 group-hover:overflow-visible',
+          !isMultiSelectMode && 'group-focus-within:max-h-8 group-focus-within:overflow-visible',
         )}
         style={
           {
@@ -201,32 +266,42 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({ bookKey, item }) => {
         // This is needed to prevent the parent onClick from being triggered
         onClick={(e) => e.stopPropagation()}
       >
-        <div className='flex cursor-default items-center justify-between'>
-          <div className='flex items-center'>
-            <span className='text-sm text-gray-500 sm:text-xs'>
-              {dayjs(item.createdAt).fromNow()}
-            </span>
-          </div>
-          <div className='flex items-center justify-end space-x-3 p-2' dir='ltr'>
-            {(item.note || item.type === 'bookmark') && (
+        {!isMultiSelectMode && (
+          <div className='flex cursor-default items-center justify-between'>
+            <div className='flex items-center'>
+              <span className='text-sm text-gray-500 sm:text-xs'>
+                {dayjs(item.createdAt).fromNow()}
+              </span>
+            </div>
+            <div className='flex items-center justify-end space-x-3 p-2' dir='ltr'>
               <TextButton
-                onClick={item.type === 'bookmark' ? editBookmark : editNote.bind(null, item)}
-                variant='primary'
+                onClick={copyNote.bind(null, item)}
+                variant='secondary'
                 className='opacity-0 transition duration-300 ease-in-out group-focus-within:opacity-100 group-hover:opacity-100'
               >
-                {_('Edit')}
+                {_('Copy')}
               </TextButton>
-            )}
 
-            <TextButton
-              onClick={deleteNote.bind(null, item)}
-              variant='danger'
-              className='opacity-0 transition duration-300 ease-in-out group-focus-within:opacity-100 group-hover:opacity-100'
-            >
-              {_('Delete')}
-            </TextButton>
+              {(item.note || item.type === 'bookmark') && (
+                <TextButton
+                  onClick={item.type === 'bookmark' ? editBookmark : editNote.bind(null, item)}
+                  variant='primary'
+                  className='opacity-0 transition duration-300 ease-in-out group-focus-within:opacity-100 group-hover:opacity-100'
+                >
+                  {_('Edit')}
+                </TextButton>
+              )}
+
+              <TextButton
+                onClick={deleteNote.bind(null, item)}
+                variant='danger'
+                className='opacity-0 transition duration-300 ease-in-out group-focus-within:opacity-100 group-hover:opacity-100'
+              >
+                {_('Delete')}
+              </TextButton>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </li>
   );

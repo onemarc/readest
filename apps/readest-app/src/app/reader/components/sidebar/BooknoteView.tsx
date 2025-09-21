@@ -11,7 +11,10 @@ const BooknoteView: React.FC<{
   type: BookNoteType;
   bookKey: string;
   toc: TOCItem[];
-}> = ({ type, bookKey, toc }) => {
+  isMultiSelectMode?: boolean;
+  selectedNoteIds?: Set<string>;
+  onToggleSelect?: (noteId: string) => void;
+}> = ({ type, bookKey, toc, isMultiSelectMode = false, selectedNoteIds = new Set(), onToggleSelect }) => {
   const { getConfig } = useBookDataStore();
   const config = getConfig(bookKey)!;
   const { booknotes: allNotes = [] } = config;
@@ -47,7 +50,14 @@ const BooknoteView: React.FC<{
             <h3 className='content font-size-base line-clamp-1 font-normal'>{group.label}</h3>
             <ul>
               {group.booknotes.map((item, index) => (
-                <BooknoteItem key={`${index}-${item.cfi}`} bookKey={bookKey} item={item} />
+                <BooknoteItem 
+                  key={`${index}-${item.cfi}`} 
+                  bookKey={bookKey} 
+                  item={item}
+                  isMultiSelectMode={isMultiSelectMode}
+                  isSelected={selectedNoteIds.has(item.id)}
+                  onToggleSelect={onToggleSelect}
+                />
               ))}
             </ul>
           </li>
