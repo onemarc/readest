@@ -17,7 +17,9 @@ export interface ReadSettings {
   isNotebookPinned: boolean;
   autohideCursor: boolean;
   translationProvider: string;
+  translateSourceLang: string;
   translateTargetLang: string;
+  notesTranslateTargetLang: string;
 
   highlightStyle: HighlightStyle;
   highlightStyles: Record<HighlightStyle, HighlightColor>;

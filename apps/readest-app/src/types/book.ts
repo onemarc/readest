@@ -171,6 +171,7 @@ export interface TTSConfig {
 export interface TranslatorConfig {
   translationEnabled: boolean;
   translationProvider: string;
+  translateSourceLang: string;
   translateTargetLang: string;
   showTranslateSource: boolean;
 }

@@ -5,11 +5,13 @@ interface PopupButtonProps {
   tooltipText: string;
   Icon: React.ElementType;
   onClick: () => void;
+  disabled?: boolean;
 }
 
-const PopupButton: React.FC<PopupButtonProps> = ({ showTooltip, tooltipText, Icon, onClick }) => {
+const PopupButton: React.FC<PopupButtonProps> = ({ showTooltip, tooltipText, Icon, onClick, disabled = false }) => {
   const [buttonClicked, setButtonClicked] = useState(false);
   const handleClick = () => {
+    if (disabled) return;
     setButtonClicked(true);
     onClick();
   };
@@ -20,7 +22,8 @@ const PopupButton: React.FC<PopupButtonProps> = ({ showTooltip, tooltipText, Ico
     >
       <button
         onClick={handleClick}
-        className='flex h-8 min-h-8 w-8 items-center justify-center p-0'
+        disabled={disabled}
+        className={`flex h-8 min-h-8 w-8 items-center justify-center p-0 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         <Icon />
       </button>

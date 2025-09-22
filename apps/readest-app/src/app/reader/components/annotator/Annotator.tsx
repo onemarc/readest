@@ -8,6 +8,7 @@ import { RiDeleteBinLine } from 'react-icons/ri';
 import { BsTranslate } from 'react-icons/bs';
 import { TbHexagonLetterD } from 'react-icons/tb';
 import { FaHeadphones } from 'react-icons/fa6';
+import { RiTranslateAi2 } from "react-icons/ri";
 
 import * as CFI from 'foliate-js/epubcfi.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
@@ -19,6 +20,8 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useNotebookStore } from '@/store/notebookStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useTranslator } from '@/hooks/useTranslator';
+import { UseTranslatorOptions } from '@/services/translators';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { useFoliateEvents } from '../../hooks/useFoliateEvents';
 import { useNotesSync } from '../../hooks/useNotesSync';
@@ -67,6 +70,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [selectedColor, setSelectedColor] = useState<HighlightColor>(
     settings.globalReadSettings.highlightStyles[selectedStyle],
   );
+  const [isTranslatingForNotes, setIsTranslatingForNotes] = useState(false);
 
   const popupPadding = useResponsiveSize(10);
   const maxWidth = window.innerWidth - 2 * popupPadding;
@@ -78,6 +82,18 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const annotPopupWidth = Math.min(useResponsiveSize(300), maxWidth);
   const annotPopupHeight = useResponsiveSize(44);
   const androidSelectionHandlerHeight = 0;
+
+  // Get translation settings from viewSettings first, fallback to globalReadSettings
+  const translationProvider = viewSettings.translationProvider || settings.globalReadSettings.translationProvider;
+  const translateSourceLang = viewSettings.translateSourceLang || settings.globalReadSettings.translateSourceLang || 'AUTO';
+  const notesTranslateTargetLang = settings.globalReadSettings.notesTranslateTargetLang;
+
+  // Initialize translator for notes functionality
+  const { translate: translateForNotes } = useTranslator({
+    provider: translationProvider,
+    sourceLang: translateSourceLang,
+    targetLang: notesTranslateTargetLang,
+  } as UseTranslatorOptions);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleDismissPopup = useCallback(
@@ -146,6 +162,11 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     if (style === 'highlight') {
       draw(Overlayer.highlight, { color: hexColor });
     } else if (['underline', 'squiggly'].includes(style as string)) {
+      if (!range || !range.startContainer) {
+        console.warn('Invalid range provided to annotation rendering');
+        return;
+      }
+      
       const { defaultView } = doc;
       const node = range.startContainer;
       const el = node.nodeType === 1 ? node : node.parentElement;
@@ -195,6 +216,11 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   useEffect(() => {
     setHighlightOptionsVisible(!!(selection && selection.annotated));
     if (selection && selection.text.trim().length > 0) {
+      if (!selection.range || !selection.range.startContainer) {
+        console.warn('Invalid selection range, skipping popup positioning');
+        return;
+      }
+      
       const gridFrame = document.querySelector(`#gridcell-${bookKey}`);
       if (!gridFrame) return;
       const rect = gridFrame.getBoundingClientRect();
@@ -235,24 +261,35 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   }, [selection, bookKey]);
 
   useEffect(() => {
-    if (!progress) return;
-    const { location } = progress;
-    const start = CFI.collapse(location);
-    const end = CFI.collapse(location, true);
-    const { booknotes = [] } = config;
-    const annotations = booknotes.filter(
-      (item) =>
-        !item.deletedAt &&
-        item.type === 'annotation' &&
-        item.style &&
-        CFI.compare(item.cfi, start) >= 0 &&
-        CFI.compare(item.cfi, end) <= 0,
-    );
-    try {
-      Promise.all(annotations.map((annotation) => view?.addAnnotation(annotation)));
-    } catch (e) {
-      console.warn(e);
-    }
+    const loadAnnotations = async () => {
+      if (!progress) return;
+      const { location } = progress;
+      const start = CFI.collapse(location);
+      const end = CFI.collapse(location, true);
+      const { booknotes = [] } = config;
+      const annotations = booknotes.filter(
+        (item) =>
+          !item.deletedAt &&
+          item.type === 'annotation' &&
+          item.style &&
+          CFI.compare(item.cfi, start) >= 0 &&
+          CFI.compare(item.cfi, end) <= 0,
+      );
+      try {
+        await Promise.all(annotations.map(async (annotation) => {
+          try {
+            return await view?.addAnnotation(annotation);
+          } catch (annotationError) {
+            console.warn('Error adding individual annotation:', annotation.id, annotationError);
+            return null;
+          }
+        }));
+      } catch (e) {
+        console.warn('Error loading annotations:', e);
+      }
+    };
+    
+    loadAnnotations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress]);
 
@@ -274,7 +311,19 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
 
     const { booknotes: annotations = [] } = config;
     if (selection) navigator.clipboard?.writeText(selection.text);
-    const cfi = view?.getCFI(selection.index, selection.range);
+    
+    if (!selection.range || !selection.range.startContainer) {
+      console.warn('Invalid selection range, cannot get CFI');
+      return;
+    }
+    
+    let cfi;
+    try {
+      cfi = view?.getCFI(selection.index, selection.range);
+    } catch (error) {
+      console.warn('Error getting CFI for copy operation:', error);
+      return;
+    }
     if (!cfi) return;
     const annotation: BookNote = {
       id: uniqueId(),
@@ -309,7 +358,19 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     if (!selection || !selection.text) return;
     setHighlightOptionsVisible(true);
     const { booknotes: annotations = [] } = config;
-    const cfi = view?.getCFI(selection.index, selection.range);
+    
+    if (!selection.range || !selection.range.startContainer) {
+      console.warn('Invalid selection range, cannot highlight');
+      return;
+    }
+    
+    let cfi;
+    try {
+      cfi = view?.getCFI(selection.index, selection.range);
+    } catch (error) {
+      console.warn('Error getting CFI from selection:', error);
+      return;
+    }
     if (!cfi) return;
     const style = settings.globalReadSettings.highlightStyle;
     const color = settings.globalReadSettings.highlightStyles[style];
@@ -330,18 +391,30 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     );
     const views = getViewsById(bookKey.split('-')[0]!);
     if (existingIndex !== -1) {
-      views.forEach((view) => view?.addAnnotation(annotation, true));
+      try {
+        views.forEach((view) => view?.addAnnotation(annotation, true));
+      } catch (error) {
+        console.warn('Error adding annotation to view:', error);
+      }
       if (update) {
         annotation.id = annotations[existingIndex]!.id;
         annotations[existingIndex] = annotation;
-        views.forEach((view) => view?.addAnnotation(annotation));
+        try {
+          views.forEach((view) => view?.addAnnotation(annotation));
+        } catch (error) {
+          console.warn('Error updating annotation in view:', error);
+        }
       } else {
         annotations[existingIndex]!.deletedAt = Date.now();
         setShowAnnotPopup(false);
       }
     } else {
       annotations.push(annotation);
-      views.forEach((view) => view?.addAnnotation(annotation));
+      try {
+        views.forEach((view) => view?.addAnnotation(annotation));
+      } catch (error) {
+        console.warn('Error adding new annotation to view:', error);
+      }
       setSelection({ ...selection, annotated: true });
     }
 
@@ -389,6 +462,129 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     if (!selection || !selection.text) return;
     setShowAnnotPopup(false);
     eventDispatcher.dispatch('tts-speak', { bookKey, range: selection.range });
+  };
+
+  const handleAddToNotesWithTranslation = async () => {
+    if (!selection || !selection.text) return;
+    
+    // Store selection data before any operations
+    const selectionData = {
+      text: selection.text,
+      index: selection.index,
+      range: selection.range,
+    };
+    
+    setIsTranslatingForNotes(true);
+    
+    try {
+      // Get CFI while selection is still active
+      let cfi;
+      try {
+        cfi = view?.getCFI(selectionData.index, selectionData.range);
+      } catch (error) {
+        console.error('Error getting CFI for translation:', error);
+        return;
+      }
+      if (!cfi) {
+        console.error('Failed to get CFI for selection');
+        return;
+      }
+      
+      // Create highlight annotation first
+      const style = settings.globalReadSettings.highlightStyle;
+      const color = settings.globalReadSettings.highlightStyles[style];
+      const highlightAnnotation: BookNote = {
+        id: uniqueId(),
+        type: 'annotation',
+        cfi,
+        style,
+        color,
+        text: selectionData.text,
+        note: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      
+      // Add highlight to config and view using the same logic as regular highlight
+      const { booknotes: annotations = [] } = config;
+      const existingIndex = annotations.findIndex(
+        (annotation) =>
+          annotation.cfi === cfi && annotation.type === 'annotation' && !annotation.deletedAt,
+      );
+      
+      const views = getViewsById(bookKey.split('-')[0]!);
+      if (existingIndex === -1) {
+        // No existing highlight, add new one
+        annotations.push(highlightAnnotation);
+        try {
+          views.forEach((view) => view?.addAnnotation(highlightAnnotation));
+        } catch (error) {
+          console.warn('Error adding highlight annotation to view:', error);
+        }
+        setSelection({ ...selection, annotated: true });
+      } else {
+        // Update existing highlight
+        try {
+          views.forEach((view) => view?.addAnnotation(highlightAnnotation, true));
+        } catch (error) {
+          console.warn('Error updating highlight annotation to view:', error);
+        }
+        highlightAnnotation.id = annotations[existingIndex]!.id;
+        annotations[existingIndex] = highlightAnnotation;
+      }
+
+      setShowAnnotPopup(false);
+      
+      // Translate the selected text using current settings
+      const translatedTexts = await translateForNotes([selectionData.text]);
+      const translatedText = translatedTexts[0] || _('Translation failed');
+
+      // Create the note content with translated text
+      const noteContent = `${translatedText}`;
+      
+      // Create the annotation with stored data
+      const { sectionHref: href } = progress;
+      if (selection) {
+        selection.href = href;
+      }
+      
+      const annotation: BookNote = {
+        id: uniqueId(),
+        type: 'annotation',
+        cfi,
+        note: noteContent,
+        text: selectionData.text,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      
+      // Add note annotation to config
+      annotations.push(annotation);
+      const updatedConfig = updateBooknotes(bookKey, annotations);
+      if (updatedConfig) {
+        saveConfig(envConfig, bookKey, updatedConfig, settings);
+      }
+      
+      // Show success message
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _('Note added with translation'),
+        className: 'whitespace-nowrap',
+        timeout: 2000,
+      });
+      
+    } catch (error) {
+      console.error('Translation error:', error);
+      eventDispatcher.dispatch('toast', {
+        type: 'error',
+        message: _('Failed to translate text'),
+        className: 'whitespace-nowrap',
+        timeout: 2000,
+      });
+    } finally {
+      setIsTranslatingForNotes(false);
+      handleDismissPopupAndSelection();
+    }
   };
 
   const handleExportMarkdown = (event: CustomEvent) => {
@@ -485,6 +681,12 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       onClick: handleHighlight,
     },
     { tooltipText: _('Annotate'), Icon: BsPencilSquare, onClick: handleAnnotate },
+    {
+      tooltipText: isTranslatingForNotes ? _('Translating...') : _('Note and translate'),
+      Icon: RiTranslateAi2,
+      onClick: handleAddToNotesWithTranslation,
+      disabled: isTranslatingForNotes
+    },
     { tooltipText: _('Search'), Icon: FiSearch, onClick: handleSearch },
     { tooltipText: _('Dictionary'), Icon: TbHexagonLetterD, onClick: handleDictionary },
     { tooltipText: _('Wikipedia'), Icon: FaWikipediaW, onClick: handleWikipedia },

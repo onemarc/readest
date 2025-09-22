@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
 import { useReaderStore } from '@/store/readerStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { saveViewSettings } from '../../utils/viewSettingsHelper';
 import { getTranslators } from '@/services/translators';
@@ -19,6 +20,7 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const { token } = useAuth();
   const { envConfig } = useEnv();
   const { getViewSettings, setViewSettings } = useReaderStore();
+  const { settings, setSettings } = useSettingsStore();
   const viewSettings = getViewSettings(bookKey)!;
 
   const [uiLanguage, setUILanguage] = useState(viewSettings.uiLanguage!);
@@ -26,6 +28,7 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const [translationProvider, setTranslationProvider] = useState(viewSettings.translationProvider!);
   const [translateTargetLang, setTranslateTargetLang] = useState(viewSettings.translateTargetLang!);
   const [showTranslateSource, setShowTranslateSource] = useState(viewSettings.showTranslateSource!);
+  const [notesTranslateTargetLang, setNotesTranslateTargetLang] = useState(settings.globalReadSettings.notesTranslateTargetLang);
 
   const resetToDefaults = useResetViewSettings();
 
@@ -36,6 +39,10 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
       translationProvider: setTranslationProvider,
       translateTargetLang: setTranslateTargetLang,
     });
+    setNotesTranslateTargetLang('EN');
+    const updatedSettings = { ...settings };
+    updatedSettings.globalReadSettings.notesTranslateTargetLang = 'EN';
+    setSettings(updatedSettings);
   };
 
   useEffect(() => {
@@ -112,6 +119,20 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     saveViewSettings(envConfig, bookKey, 'translateTargetLang', option, false, false);
     viewSettings.translateTargetLang = option;
     setViewSettings(bookKey, { ...viewSettings });
+  };
+
+  const getCurrentNotesTargetLangOption = () => {
+    const value = notesTranslateTargetLang;
+    const availableOptions = getLangOptions(TRANSLATOR_LANGS);
+    return availableOptions.find((o) => o.value === value) || availableOptions[0]!;
+  };
+
+  const handleSelectNotesTargetLang = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const option = event.target.value;
+    setNotesTranslateTargetLang(option);
+    const updatedSettings = { ...settings };
+    updatedSettings.globalReadSettings.notesTranslateTargetLang = option;
+    setSettings(updatedSettings);
   };
 
   useEffect(() => {
@@ -201,6 +222,15 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
                 onChange={handleSelectTargetLang}
                 options={getLangOptions(TRANSLATOR_LANGS)}
                 disabled={!translationEnabled}
+              />
+            </div>
+
+            <div className='config-item'>
+              <span className=''>{_('Notes Translation Language')}</span>
+              <Select
+                value={getCurrentNotesTargetLangOption().value}
+                onChange={handleSelectNotesTargetLang}
+                options={getLangOptions(TRANSLATOR_LANGS)}
               />
             </div>
           </div>

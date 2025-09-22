@@ -43,7 +43,7 @@ const TranslatorPopup: React.FC<TranslatorPopupProps> = ({
   const { token } = useAuth();
   const { settings, setSettings } = useSettingsStore();
   const [providers, setProviders] = useState<TranslatorType[]>([]);
-  const [sourceLang, setSourceLang] = useState('AUTO');
+  const [sourceLang, setSourceLang] = useState(settings.globalReadSettings.translateSourceLang || 'AUTO');
   const [targetLang, setTargetLang] = useState(settings.globalReadSettings.translateTargetLang);
   const [provider, setProvider] = useState(settings.globalReadSettings.translationProvider);
   const [translation, setTranslation] = useState<string | null>(null);
@@ -58,7 +58,10 @@ const TranslatorPopup: React.FC<TranslatorPopupProps> = ({
   } as UseTranslatorOptions);
 
   const handleSourceLangChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setSourceLang(event.target.value);
+    const newSourceLang = event.target.value;
+    settings.globalReadSettings.translateSourceLang = newSourceLang;
+    setSettings(settings);
+    setSourceLang(newSourceLang);
   };
 
   const handleTargetLangChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
