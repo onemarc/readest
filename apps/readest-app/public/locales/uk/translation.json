@@ -552,12 +552,12 @@
   "Delete Book Options": "Параметри видалення книги",
   "ON": "УВІМКНЕННЯ",
   "OFF": "ВИМКНЕННЯ",
-  "Reading Progress": "Проґрес читання",
+  "Reading Progress": "Прогрес читання",
   "Page Margin": "Поля сторінки",
-  "Translation failed": "Переклад не вдався",
+  "Translation failed": "Не вдалося перекласти",
   "Failed to translate text": "Не вдалося перекласти текст",
   "Translating...": "Переклад...",
-  "Exit selection": "Закрити виділення",
+  "Exit selection": "Припинити виділення",
   "selected": "вибрано",
   "Deselect all": "Скасувати все",
   "Select all": "Вибрати все",
@@ -570,7 +570,7 @@
   "notes copied": "нотатки скопійовано",
   "Deselect note": "Скасувати вибір нотатки",
   "Select note": "Вибрати нотатку",
-  "Notes Translation Language": "Мова перекладу нотаток",
-  "Note added with translation": "Нотатку додано з перекладом",
-  "Note and translate": "Нотатка і переклад"
+  "Notes Translation Language": "Мова для перекладу нотаток",
+  "Note added with translation": "Додано нотатку з перекладом",
+  "Note and translate": "Занотувати та перекласти"
 }
